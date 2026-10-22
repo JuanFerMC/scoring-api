@@ -73,7 +73,7 @@ http://localhost:8080
 |---|---|---|
 | `DB_URL` | Sí | `postgresql://host:puerto/base` (Spring agrega el prefijo `jdbc:`) |
 | `DB_USERNAME`, `DB_PASSWORD` | Sí | Rol de ejecución (sin propiedad de las tablas ni privilegios administrativos; `docs/operacion/roles-scoring-api.sql`) |
-| `SCORING_FLYWAY_MIGRAR_AL_ARRANCAR` | No | `false` por defecto: Flyway solo valida y, si hay migraciones pendientes, la aplicación no arranca y no aplica ninguna. `true` solo en un despliegue controlado (`docs/operacion/despliegue-v10-v11.md`) |
+| `SCORING_FLYWAY_MIGRAR_AL_ARRANCAR` | No | `false` por defecto: Flyway solo valida y, si hay migraciones pendientes, la aplicación no arranca y no aplica ninguna. `true` solo en un despliegue controlado (`docs/operacion/despliegue-v10-v11.md` y `docs/operacion/despliegue-v12-proyeccion-query.md`) |
 | `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD` | Solo al migrar | Rol propietario de las tablas, que aplica las migraciones |
 | `SCORING_SAGA_HABILITADA` y variables `SCORING_SERVICE_JWT_*`, `EVALUATION_QUERY_API_BASE_URL` | Con la saga (HU14) | Ver `application.properties` y el README de `evaluation-query-api` |
 | `AUTH_JWT_ISSUER` | Sí | Emisor de los JWT; debe ser el mismo valor configurado en `auth-api` (allí, `auth-api` por defecto) |
@@ -81,7 +81,7 @@ http://localhost:8080
 | `CORS_ALLOWED_ORIGINS` | No | Orígenes del frontend separados por coma (por defecto `http://localhost:3000`) |
 
 Sin `AUTH_JWT_ISSUER` o sin una clave pública válida la aplicación no arranca, y tampoco si la base tiene
-migraciones pendientes y no se pidió migrar (protección contra la aplicación accidental de V10 y V11). Con el perfil `dev`
+migraciones pendientes y no se pidió migrar (protección contra la aplicación accidental de V10, V11 y V12). Con el perfil `dev`
 (`SPRING_PROFILES_ACTIVE=dev`) se habilita Swagger; en cualquier otro perfil está deshabilitado.
 
 ## Autenticación y autorización (HU10)
