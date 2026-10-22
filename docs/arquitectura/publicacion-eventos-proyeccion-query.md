@@ -21,9 +21,9 @@ finalización desde el adaptador que ya confirma la saga HU14.
   procesado y `evaluacion` como completada. Si falla cualquier escritura, se revierten las tres.
 - Las inserciones son idempotentes por `(tipo_evento, id_agregado)`. Los IDs de agregado y el estado son el
   contenido mínimo del evento; no se copian datos personales ni factores de evaluación al outbox.
-- La evaluación solo produce el evento al completar la saga de recomendaciones, preservando HU14. Su snapshot
-  y recomendaciones se sincronizan por la petición ya existente a Query; el evento posterior comunica la
-  transición final de estado.
+- La evaluación solo produce el evento al completar la saga de recomendaciones, preservando HU14. Scoring lee
+  los valores ya persistidos de la evaluación y sus factores y los envía en la petición existente a Query; Query
+  genera desde ese snapshot local. El evento posterior comunica la transición final de estado.
 
 ## Operación en este punto
 
