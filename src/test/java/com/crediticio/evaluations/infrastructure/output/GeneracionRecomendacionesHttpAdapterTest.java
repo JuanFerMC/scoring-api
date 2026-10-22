@@ -3,6 +3,8 @@ package com.crediticio.evaluations.infrastructure.output;
 import com.crediticio.config.SagaRecomendacionesProperties;
 import com.crediticio.evaluations.ports.output.GeneracionRecomendacionesPort.ModoIntento;
 import com.crediticio.evaluations.ports.output.ResultadoGeneracion;
+import com.crediticio.evaluations.ports.output.SnapshotEvaluacionQuery;
+import com.crediticio.evaluations.ports.output.SnapshotEvaluacionQueryPort;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -16,12 +18,16 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.anyLong;
 
 /**
  * Cliente de la operación interna de HU14 contra un servidor HTTP local del JDK. Incluye la prueba B: el límite
@@ -74,7 +80,13 @@ class GeneracionRecomendacionesHttpAdapterTest {
                 limite, 20);
         TokenServicioJwtFirmante firmante = mock(TokenServicioJwtFirmante.class);
         when(firmante.emitir()).thenReturn("token-de-servicio");
-        return new GeneracionRecomendacionesHttpAdapter(propiedades, firmante);
+        SnapshotEvaluacionQueryPort snapshotPort = mock(SnapshotEvaluacionQueryPort.class);
+        when(snapshotPort.buscar(anyLong())).thenAnswer(invocacion -> Optional.of(
+                new SnapshotEvaluacionQuery(invocacion.getArgument(0), 11, LocalDateTime.of(2026, 10, 21, 12, 0),
+                        10, "MEDIO", 1, "PENDIENTE", List.of(
+                                new SnapshotEvaluacionQuery.Factor(1, 21, 31, "NUMERO_MORAS", ">", "2", 10,
+                                        true, 10)))));
+        return new GeneracionRecomendacionesHttpAdapter(propiedades, firmante, snapshotPort);
     }
 
     private GeneracionRecomendacionesHttpAdapter adaptador() {

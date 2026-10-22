@@ -3,6 +3,9 @@ package com.crediticio.evaluations.infrastructure.output;
 import com.crediticio.config.SagaRecomendacionesProperties;
 import com.crediticio.evaluations.ports.output.GeneracionRecomendacionesPort;
 import com.crediticio.evaluations.ports.output.ResultadoGeneracion;
+import com.crediticio.evaluations.ports.output.SnapshotEvaluacionQuery;
+import com.crediticio.evaluations.ports.output.SnapshotEvaluacionQueryPort;
+import org.springframework.dao.DataAccessException;
 import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpHeaders;
@@ -39,9 +42,10 @@ public class GeneracionRecomendacionesHttpAdapter implements GeneracionRecomenda
     private final Duration limiteEnLinea;
     private final Duration limiteReenvio;
     private final TokenServicioJwtFirmante firmante;
+    private final SnapshotEvaluacionQueryPort snapshotPort;
 
     public GeneracionRecomendacionesHttpAdapter(SagaRecomendacionesProperties propiedades,
-            TokenServicioJwtFirmante firmante) {
+            TokenServicioJwtFirmante firmante, SnapshotEvaluacionQueryPort snapshotPort) {
         if (propiedades.urlBase() == null || propiedades.urlBase().isBlank()) {
             throw new IllegalStateException("Falta la propiedad scoring.saga.url-base");
         }
@@ -50,6 +54,7 @@ public class GeneracionRecomendacionesHttpAdapter implements GeneracionRecomenda
         this.limiteEnLinea = propiedades.limiteEnLinea();
         this.limiteReenvio = propiedades.limiteReenvio();
         this.firmante = firmante;
+        this.snapshotPort = snapshotPort;
     }
 
     static RestClient cliente(String urlBase, Duration conexion, Duration limiteTotal) {
@@ -61,6 +66,17 @@ public class GeneracionRecomendacionesHttpAdapter implements GeneracionRecomenda
 
     @Override
     public ResultadoGeneracion generar(long idEvaluacion, ModoIntento modo) {
+        SnapshotEvaluacionQuery snapshot;
+        try {
+            snapshot = snapshotPort.buscar(idEvaluacion).orElse(null);
+        } catch (DataAccessException ex) {
+            return new ResultadoGeneracion.ErrorTransitorio("SNAPSHOT_NO_DISPONIBLE",
+                    "No se pudo leer el snapshot persistido de Scoring");
+        }
+        if (snapshot == null) {
+            return new ResultadoGeneracion.ErrorPermanente("SNAPSHOT_NO_ENCONTRADO",
+                    "No existe el snapshot persistido de la evaluación " + idEvaluacion);
+        }
         String token;
         try {
             token = firmante.emitir();
@@ -75,6 +91,7 @@ public class GeneracionRecomendacionesHttpAdapter implements GeneracionRecomenda
                     .uri(RUTA, idEvaluacion)
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                     .header("X-Trace-Id", traceId())
+                    .body(snapshot)
                     .retrieve()
                     .toEntity(RespuestaGeneracion.class);
             return interpretar(idEvaluacion, respuesta.getBody());
