@@ -76,7 +76,7 @@ http://localhost:8080
 | `SCORING_FLYWAY_MIGRAR_AL_ARRANCAR` | No | `false` por defecto: Flyway solo valida y, si hay migraciones pendientes, la aplicación no arranca y no aplica ninguna. `true` solo en un despliegue controlado (`docs/operacion/despliegue-v10-v11.md` y `docs/operacion/despliegue-v12-proyeccion-query.md`) |
 | `SPRING_FLYWAY_USER`, `SPRING_FLYWAY_PASSWORD` | Solo al migrar | Rol propietario de las tablas, que aplica las migraciones |
 | `SCORING_SAGA_HABILITADA` y variables `SCORING_SERVICE_JWT_*`, `EVALUATION_QUERY_API_BASE_URL` | Con la saga (HU14) | Ver `application.properties` y el README de `evaluation-query-api` |
-| `AUTH_JWT_ISSUER` | Sí | Emisor de los JWT; debe ser el mismo valor configurado en `auth-api` (allí, `auth-api` por defecto) |
+| `AUTH_JWT_ISSUER` | Sí | Emisor de los JWT; debe ser el mismo valor configurado en `auth-api` (por defecto `crediticio-auth`) |
 | `SCORING_JWT_PUBLIC_KEY_LOCATION` | Sí | Ubicación de la clave pública RS256 de `auth-api`, p. ej. `file:/ruta/jwt-publica.pem` |
 | `CORS_ALLOWED_ORIGINS` | No | Orígenes del frontend separados por coma (por defecto `http://localhost:3000`) |
 
