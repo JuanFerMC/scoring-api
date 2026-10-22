@@ -84,6 +84,9 @@ Sin `AUTH_JWT_ISSUER` o sin una clave pública válida la aplicación no arranca
 migraciones pendientes y no se pidió migrar (protección contra la aplicación accidental de V10, V11 y V12). Con el perfil `dev`
 (`SPRING_PROFILES_ACTIVE=dev`) se habilita Swagger; en cualquier otro perfil está deshabilitado.
 
+La publicación durable de eventos hacia la proyección de Query y su estado de implementación están documentados
+en `docs/arquitectura/publicacion-eventos-proyeccion-query.md`.
+
 ## Autenticación y autorización (HU10)
 
 Todos los endpoints de negocio exigen un JWT de acceso emitido por `auth-api` en la cabecera

@@ -5,6 +5,7 @@ import com.crediticio.applicants.application.dto.SolicitanteResponse;
 import com.crediticio.applicants.domain.DocumentoDuplicadoException;
 import com.crediticio.applicants.domain.HistorialCrediticio;
 import com.crediticio.applicants.domain.Solicitante;
+import com.crediticio.applicants.ports.output.RegistrarAltaSolicitanteEnProyeccionPort;
 import com.crediticio.applicants.ports.output.SolicitanteRepositoryPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,11 +30,15 @@ class RegistrarSolicitanteServiceTest {
     @Mock
     private SolicitanteRepositoryPort solicitanteRepositoryPort;
 
+    @Mock
+    private RegistrarAltaSolicitanteEnProyeccionPort registrarAltaEnProyeccionPort;
+
     private RegistrarSolicitanteService registrarSolicitanteService;
 
     @BeforeEach
     void inicializarServicio() {
-        registrarSolicitanteService = new RegistrarSolicitanteService(solicitanteRepositoryPort, new SolicitanteMapper());
+        registrarSolicitanteService = new RegistrarSolicitanteService(solicitanteRepositoryPort,
+                registrarAltaEnProyeccionPort, new SolicitanteMapper());
     }
 
     @Test
@@ -64,6 +69,7 @@ class RegistrarSolicitanteServiceTest {
 
         ArgumentCaptor<Solicitante> captor = ArgumentCaptor.forClass(Solicitante.class);
         verify(solicitanteRepositoryPort).guardar(captor.capture());
+        verify(registrarAltaEnProyeccionPort).registrarAlta(42L);
         assertThat(captor.getValue().getIngresosMensuales()).isEqualTo(request.getIngresosMensuales());
         assertThat(captor.getValue().getDeudasMensuales()).isEqualTo(request.getDeudasMensuales());
         assertThat(captor.getValue().getNumeroMoras()).isEqualTo(request.getNumeroMoras());

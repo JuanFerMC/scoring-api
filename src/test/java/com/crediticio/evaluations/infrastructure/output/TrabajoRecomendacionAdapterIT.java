@@ -21,7 +21,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * HU14: sentencias de la outbox (TrabajoRecomendacionAdapter) contra PostgreSQL con V1–V11 en un esquema aislado y
+ * HU14 y sincronización de proyección: sentencias de las outboxes contra PostgreSQL con V1–V12 en un esquema aislado y
  * temporal: reclamo con concesión, barrera por token, éxito, error transitorio con espera, error permanente y
  * agotamiento de concesiones. Cada escenario usa su propia evaluación y la deja en un estado terminal o con una
  * espera futura, para que no interfiera con los siguientes.

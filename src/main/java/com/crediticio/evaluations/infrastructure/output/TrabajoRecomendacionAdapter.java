@@ -67,6 +67,11 @@ public class TrabajoRecomendacionAdapter implements TrabajoRecomendacionPort {
             """;
     private static final String COMPLETAR_EVALUACION =
             "UPDATE evaluacion SET estado = 'COMPLETADA' WHERE id_evaluacion = ? AND estado = 'PENDIENTE'";
+    private static final String REGISTRAR_EVALUACION_COMPLETADA = """
+            INSERT INTO evento_proyeccion_query (tipo_evento, id_agregado, version_payload, payload)
+            VALUES ('EVALUACION_COMPLETADA', ?, 1, jsonb_build_object('estado', 'COMPLETADA'))
+            ON CONFLICT (tipo_evento, id_agregado) DO NOTHING
+            """;
     private static final String ERROR_TRANSITORIO = """
             UPDATE trabajo_recomendacion
                SET id_concesion = NULL, concesion_hasta = NULL,
@@ -140,6 +145,7 @@ public class TrabajoRecomendacionAdapter implements TrabajoRecomendacionPort {
                 estado.setRollbackOnly();
                 return false;
             }
+            jdbcTemplate.update(REGISTRAR_EVALUACION_COMPLETADA, idEvaluacion);
             return true;
         }));
     }

@@ -1,8 +1,8 @@
 # Preparación de V12: outbox para la proyección de Query
 
-Estado: **migración preparada; no aplicada a ninguna base de datos**. Este bloque agrega únicamente la
-estructura durable en `public` y los permisos de ejecución en el script de roles. No activa productores,
-consumidores HTTP ni modifica el esquema `consulta`.
+Estado: **migración preparada; no aplicada a ninguna base de datos**. El bloque de persistencia crea la
+estructura durable en `public`; el bloque de publicación registra eventos desde Scoring. El despachador HTTP y
+la actualización de Query todavía no están implementados. No se modifica el esquema `consulta`.
 
 ## Qué agrega
 
@@ -45,8 +45,9 @@ No aplicar V12 como parte de este bloque. Cuando se autorice el despliegue:
    y las credenciales del propietario. No dejar la bandera en configuración permanente.
 4. Verificar V12 como exitosa y las columnas, restricciones e índice de la tabla. Confirmar que los datos
    existentes no cambiaron; aplicar `roles-scoring-api-v12.sql` al rol de ejecución y reiniciar con ese rol.
-5. No habilitar productores ni reintentos automáticos hasta que el despachador y el endpoint idempotente de
-   Query estén implementados y revisados.
+5. Los productores registrarán eventos pendientes al desplegar el código de Scoring. Hasta que estén listos el
+   despachador y el endpoint idempotente de Query, estos eventos se acumularán sin salir de Scoring. No aplicar
+   esta migración/desplegar el productor antes de definir cuándo se implementará y habilitará el despachador.
 
 Flyway aplica cada versión en su propia transacción PostgreSQL. Si V12 falla, se revierte entera; corregir la
 causa en una migración nueva si V12 ya fue aplicada, nunca editar una migración aplicada.
