@@ -1,6 +1,7 @@
 package com.crediticio.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.core.io.Resource;
 
 import java.time.Duration;
@@ -16,9 +17,22 @@ public record ServicioJwtProperties(
         String sujeto,
         String audiencia,
         String permiso,
+        String permisoProyeccion,
         String tipo,
         Duration duracion,
         String idClave,
         Resource clavePrivada,
         Resource clavePublica) {
+
+    /** Constructor canónico usado por Spring para enlazar scoring.servicio-jwt.*. */
+    @ConstructorBinding
+    public ServicioJwtProperties {
+    }
+
+    /** Constructor compatible con consumidores que solo configuran el permiso de generación HU14. */
+    public ServicioJwtProperties(String emisor, String sujeto, String audiencia, String permiso, String tipo,
+            Duration duracion, String idClave, Resource clavePrivada, Resource clavePublica) {
+        this(emisor, sujeto, audiencia, permiso, "proyeccion:actualizar", tipo, duracion, idClave, clavePrivada,
+                clavePublica);
+    }
 }

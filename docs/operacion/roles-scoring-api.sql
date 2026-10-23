@@ -11,7 +11,7 @@
 --   solicitante, detalle_evaluacion, politica_clasificacion, rango_clasificacion: SELECT, INSERT
 --   riesgo, regla_scoring, evaluacion, trabajo_recomendacion: SELECT, INSERT, UPDATE
 --   configuracion_clasificacion_actual: SELECT, UPDATE
---   flyway_schema_history: SELECT (la aplicación solo valida las migraciones al arrancar)
+--   scoring_flyway_schema_history: SELECT (la aplicación solo valida las migraciones al arrancar)
 -- Sin EXECUTE sobre reactivar_trabajo_recomendacion (operación de soporte, propietario o administrador).
 --
 -- Uso: psql -h <host> -U <administrador> -d motor_scoring -v rol_app=<rol de ejecución> -f roles-scoring-api.sql
@@ -55,7 +55,7 @@ GRANT SELECT, INSERT ON :"esquema".solicitante, :"esquema".detalle_evaluacion,
 GRANT SELECT, INSERT, UPDATE ON :"esquema".riesgo, :"esquema".regla_scoring, :"esquema".evaluacion,
     :"esquema".trabajo_recomendacion TO :"rol_app";
 GRANT SELECT, UPDATE ON :"esquema".configuracion_clasificacion_actual TO :"rol_app";
-GRANT SELECT ON :"esquema".flyway_schema_history TO :"rol_app";
+GRANT SELECT ON :"esquema".scoring_flyway_schema_history TO :"rol_app";
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA :"esquema" TO :"rol_app";
 
 COMMIT;

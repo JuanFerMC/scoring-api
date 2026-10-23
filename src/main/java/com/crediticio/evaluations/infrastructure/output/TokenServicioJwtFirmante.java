@@ -55,6 +55,7 @@ public class TokenServicioJwtFirmante {
         requerirTexto(propiedades.sujeto(), "scoring.servicio-jwt.sujeto");
         requerirTexto(propiedades.audiencia(), "scoring.servicio-jwt.audiencia");
         requerirTexto(propiedades.permiso(), "scoring.servicio-jwt.permiso");
+        requerirTexto(propiedades.permisoProyeccion(), "scoring.servicio-jwt.permiso-proyeccion");
         requerirTexto(propiedades.tipo(), "scoring.servicio-jwt.tipo");
         requerirTexto(propiedades.idClave(), "scoring.servicio-jwt.id-clave");
         if (propiedades.emisor().equals(jwtUsuarios.emisor())) {
@@ -75,6 +76,14 @@ public class TokenServicioJwtFirmante {
     }
 
     public String emitir() {
+        return emitir(propiedades.permiso());
+    }
+
+    /** Emite un token S1 con el alcance explícito para una operación interna de Query. */
+    public String emitir(String permiso) {
+        if (!propiedades.permiso().equals(permiso) && !propiedades.permisoProyeccion().equals(permiso)) {
+            throw new IllegalArgumentException("El permiso no está configurado para el token de servicio");
+        }
         Instant ahora = Instant.now(reloj);
         JwsHeader cabecera = JwsHeader.with(SignatureAlgorithm.RS256)
                 .keyId(propiedades.idClave())
@@ -87,7 +96,7 @@ public class TokenServicioJwtFirmante {
                 .issuedAt(ahora)
                 .expiresAt(ahora.plus(propiedades.duracion()))
                 .id(UUID.randomUUID().toString())
-                .claim("scope", propiedades.permiso())
+                .claim("scope", permiso)
                 .build();
         return encoder.encode(JwtEncoderParameters.from(cabecera, claims)).getTokenValue();
     }

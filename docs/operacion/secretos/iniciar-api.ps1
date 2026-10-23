@@ -39,6 +39,10 @@ foreach ($nombre in @('DB_URL', 'DB_USERNAME', 'DB_PASSWORD', 'SPRING_FLYWAY_USE
 try {
     $clave = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($puntero)
     $entorno['AUTH_JWT_ISSUER'] = $config.emisorAuth
+    if ($Saga) {
+        # El emisor S1 es distinto del emisor de Auth y debe coincidir en Scoring y Query.
+        $entorno['SCORING_SERVICE_JWT_ISSUER'] = 'scoring-api'
+    }
     if ($Api -eq 'scoring') {
         $entorno['DB_URL'] = $url; $entorno['DB_USERNAME'] = $rol; $entorno['DB_PASSWORD'] = $clave
         $entorno['SCORING_JWT_PUBLIC_KEY_LOCATION'] = & $archivo $config.clavePublicaAuth

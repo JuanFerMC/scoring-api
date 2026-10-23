@@ -1,34 +1,52 @@
-# Publicación transaccional de eventos para Query
+# Entrega transaccional de eventos a la proyección de Query
 
 ## Alcance
 
-Scoring registra ahora dos tipos de evento en `public.evento_proyeccion_query` (V12): el alta de un solicitante y
-la finalización de una evaluación. Este bloque solo crea eventos; no los envía por HTTP ni actualiza todavía la
-proyección de Query.
+Scoring registra dos tipos de evento en `public.evento_proyeccion_query` (V12): alta de solicitante y finalización
+de evaluación. El despachador programado reclama esos eventos y los entrega a las operaciones internas de Query.
+No se usa un broker ni se modifica directamente el esquema `consulta` desde Scoring.
 
 ## Límites modulares
 
-El módulo `applicants` depende de su puerto de salida
-`RegistrarAltaSolicitanteEnProyeccionPort`. Su adaptador PostgreSQL conoce el formato de persistencia del outbox;
-el servicio de aplicación no conoce SQL, tablas ni la API Query. El módulo `evaluations` registra el evento de
-finalización desde el adaptador que ya confirma la saga HU14.
+El módulo `applicants` depende del puerto de salida `RegistrarAltaSolicitanteEnProyeccionPort`; su servicio de
+aplicación no conoce SQL ni la API Query. El módulo `evaluations` inserta el evento de finalización desde el
+adaptador que confirma la saga HU14. El módulo `projection` contiene el caso de uso de entrega, su outbox JDBC y
+el adaptador HTTP; la llamada remota ocurre fuera de la transacción de reclamo.
 
 ## Consistencia y recuperación
 
 - El alta de solicitante y su evento usan la misma transacción Spring. Un fallo al insertar el evento revierte
-  también el alta; no queda una escritura sin notificación durable.
-- El evento `EVALUACION_COMPLETADA` se inserta dentro de la transacción que marca `trabajo_recomendacion` como
-  procesado y `evaluacion` como completada. Si falla cualquier escritura, se revierten las tres.
-- Las inserciones son idempotentes por `(tipo_evento, id_agregado)`. Los IDs de agregado y el estado son el
-  contenido mínimo del evento; no se copian datos personales ni factores de evaluación al outbox.
-- La evaluación solo produce el evento al completar la saga de recomendaciones, preservando HU14. Scoring lee
-  los valores ya persistidos de la evaluación y sus factores y los envía en la petición existente a Query; Query
-  genera desde ese snapshot local. El evento posterior comunica la transición final de estado.
+  también el alta.
+- `EVALUACION_COMPLETADA` se inserta en la misma transacción que marca el trabajo y la evaluación como completos.
+- Las inserciones son idempotentes por `(tipo_evento, id_agregado)`. El evento no copia datos personales ni
+  factores de evaluación.
+- El despachador reclama con `FOR UPDATE SKIP LOCKED`, asigna una concesión temporal y aumenta intentos. Si cae,
+  otra instancia puede reclamar el evento tras vencer la concesión.
+- La publicación usa un JWT S1 RS256 de vida corta firmado por Scoring con scope `proyeccion:actualizar`.
+  Query valida `kid`, emisor, audiencia, sujeto, tipo, vigencia y scope con la clave pública correspondiente.
+  Este token interno no es un token de usuario de Auth.
+- Los fallos transitorios se reintentan con la política exponencial existente. Rechazos funcionales y reintentos
+  agotados quedan `ERROR_PERMANENTE`; el log identifica el evento y el código. Las rutas internas de Query son
+  idempotentes para tolerar un reenvío si Scoring cae después de la aceptación remota.
+- La proyección de Query mantiene una evaluación en `PENDIENTE` hasta recibir la confirmación. El frontend reintenta
+  temporalmente sus lecturas y permite repetirlas manualmente si la proyección sigue pendiente.
 
-## Operación en este punto
+## Operación y diagnóstico
 
-Hasta que se implemente el despachador en un bloque posterior, los eventos permanecen `PENDIENTE`. La aplicación
-que despliegue este código necesita V12 y los permisos descritos en
-`docs/operacion/despliegue-v12-proyeccion-query.md`. Aplicar la migración y el permiso no publica ningún dato en
-Query. No borrar ni truncar la tabla para limpiar pendientes: esos eventos son la evidencia durable de cambios
-que aún no se han sincronizado.
+El despachador se activa con `SCORING_SAGA_HABILITADA=true`; Query debe usar
+`EVALUATION_QUERY_SAGA_HABILITADA=true`. Ambos servicios deben compartir `SCORING_SERVICE_JWT_KEY_ID`, y la clave
+pública de Query debe corresponder a la privada de Scoring. Se requieren V12 y los permisos descritos en
+`docs/operacion/despliegue-v12-proyeccion-query.md`.
+
+Consulta de solo lectura para revisar el estado del outbox:
+
+```sql
+SELECT id_evento, tipo_evento, id_agregado, estado, intentos,
+       codigo_ultimo_error, ultimo_error, proximo_intento
+  FROM public.evento_proyeccion_query
+ ORDER BY id_evento DESC;
+```
+
+`PENDIENTE` indica que la entrega está en curso o reprogramada; `ENTREGADO` confirma una respuesta 2xx de Query;
+`ERROR_PERMANENTE` requiere corregir la causa y una recuperación controlada. No borrar ni truncar la tabla para
+limpiar pendientes.
