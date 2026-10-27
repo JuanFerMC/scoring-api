@@ -17,4 +17,4 @@ openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out keys-service/s
 openssl pkey -in keys-service/scoring-service-private.pem -pubout -out keys-service/scoring-service-public.pem
 ```
 
-Configura el mismo `SCORING_SERVICE_JWT_KEY_ID` en ambas APIs. Scoring usa la privada y la pública; Query usa solo la pública (copia el PEM público al repo Query y ajusta su ruta). La privada no sale de Scoring. No uses `SCORING_FLYWAY_MIGRAR_AL_ARRANCAR=true` sin seguir el procedimiento de despliegue.
+Configura el mismo `SCORING_SERVICE_JWT_KEY_ID` en ambas APIs. Scoring usa la privada y la pública; Query usa solo la pública; en el layout de carpetas hermanas su `.env` apunta directamente a `../scoring-api/keys-service/scoring-service-public.pem`. En despliegues separados, distribuye solo ese PEM público de forma segura. La privada no sale de Scoring. No uses `SCORING_FLYWAY_MIGRAR_AL_ARRANCAR=true` sin seguir el procedimiento de despliegue.
