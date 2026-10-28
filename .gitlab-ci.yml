@@ -1,0 +1,60 @@
+stages:
+  - test
+  - sonar
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+  GIT_DEPTH: "0"
+
+cache:
+  paths:
+    - .m2/repository/
+    - .sonar/cache/
+
+
+jacoco:
+  stage: test
+
+  image: maven:3.9.9-eclipse-temurin-21
+
+  script:
+    - mvn clean test jacoco:report
+    - test -f target/site/jacoco/jacoco.xml
+
+  artifacts:
+    when: always
+
+    paths:
+      - target/site/jacoco/
+      - target/jacoco.exec
+
+    reports:
+      coverage_report:
+        coverage_format: jacoco
+        path: target/site/jacoco/jacoco.xml
+
+    expire_in: 1 day
+
+
+sonarqube:
+  stage: sonar
+
+  image: maven:3.9.9-eclipse-temurin-21
+
+  needs:
+    - job: jacoco
+      artifacts: true
+
+  script:
+    - test -f target/site/jacoco/jacoco.xml
+
+    - >
+      mvn sonar:sonar
+      -Dsonar.host.url=$SONAR_HOST_URL
+      -Dsonar.token=$SONAR_TOKEN
+      -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
