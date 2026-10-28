@@ -1,6 +1,7 @@
 package com.crediticio.evaluations.infrastructure.input;
 
 import com.crediticio.config.JwtConfig;
+import com.crediticio.applicants.ports.output.RegistrarAltaSolicitanteEnProyeccionPort;
 import com.crediticio.support.ClavesRsaPrueba;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeAll;
@@ -14,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -97,6 +99,10 @@ class ClasificacionEvaluacionFlujoTest {
 
     @Autowired
     private DataSource dataSource;
+
+    /** HU12 no prueba el outbox de sincronización, que tiene su propia cobertura de infraestructura. */
+    @MockitoBean
+    private RegistrarAltaSolicitanteEnProyeccionPort registrarAltaEnProyeccionPort;
 
     private long idSolicitante;
     private long idPolitica1;

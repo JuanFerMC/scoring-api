@@ -15,6 +15,7 @@ import org.springframework.test.context.ContextConfiguration;
 
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,7 +56,7 @@ class SolicitanteRepositoryAdapterIT {
 
     @Test
     void debeGuardarElSolicitanteYGenerarIdYFechaDeRegistro() {
-        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001001"));
+        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documentoPrueba()));
 
         assertThat(guardado.getIdSolicitante()).isNotNull();
         assertThat(guardado.getFechaRegistro()).isNotNull();
@@ -63,14 +64,15 @@ class SolicitanteRepositoryAdapterIT {
 
     @Test
     void debePersistirYPermitirLeerTodosLosCamposDelSolicitante() {
-        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001002"));
+        String documento = documentoPrueba();
+        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documento));
 
         Optional<SolicitanteJpaEntity> leido = solicitanteJpaRepository.findById(guardado.getIdSolicitante());
 
         assertThat(leido).isPresent();
         SolicitanteJpaEntity entity = leido.get();
         assertThat(entity.getNombreCompleto()).isEqualTo("Ana María Pérez");
-        assertThat(entity.getNumeroDocumento()).isEqualTo("6001002");
+        assertThat(entity.getNumeroDocumento()).isEqualTo(documento);
         assertThat(entity.getIngresosMensuales()).isEqualByComparingTo(new BigDecimal("3000000"));
         assertThat(entity.getDeudasMensuales()).isEqualByComparingTo(new BigDecimal("500000"));
         assertThat(entity.getNumeroMoras()).isZero();
@@ -81,30 +83,35 @@ class SolicitanteRepositoryAdapterIT {
 
     @Test
     void debeLanzarDocumentoDuplicadoAlGuardarUnNumeroDeDocumentoYaExistente() {
-        solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001003"));
+        String documento = documentoPrueba();
+        solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documento));
 
-        assertThatThrownBy(() -> solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001003")))
+        assertThatThrownBy(() -> solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documento)))
                 .isInstanceOf(DocumentoDuplicadoException.class);
     }
 
     @Test
     void debeExistePorNumeroDocumentoDetectarUnDocumentoYaRegistrado() {
-        solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001004"));
+        String documento = documentoPrueba();
+        String documentoInexistente = documentoPrueba();
+        solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documento));
 
-        assertThat(solicitanteRepositoryAdapter.existePorNumeroDocumento("6001004")).isTrue();
-        assertThat(solicitanteRepositoryAdapter.existePorNumeroDocumento("6009999")).isFalse();
+        assertThat(solicitanteRepositoryAdapter.existePorNumeroDocumento(documento)).isTrue();
+        assertThat(solicitanteRepositoryAdapter.existePorNumeroDocumento(documentoInexistente)).isFalse();
     }
 
     @Test
     void debeBuscarPorNumeroDocumentoEncontrarElSolicitanteSinModificarloYRetornarVacioSiNoExiste() {
-        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo("6001006"));
+        String documento = documentoPrueba();
+        String documentoInexistente = documentoPrueba();
+        Solicitante guardado = solicitanteRepositoryAdapter.guardar(solicitanteNuevo(documento));
 
-        Optional<Solicitante> encontrado = solicitanteRepositoryAdapter.buscarPorNumeroDocumento("6001006");
+        Optional<Solicitante> encontrado = solicitanteRepositoryAdapter.buscarPorNumeroDocumento(documento);
 
         assertThat(encontrado).isPresent();
         assertThat(encontrado.get().getIdSolicitante()).isEqualTo(guardado.getIdSolicitante());
         assertThat(encontrado.get().getNombreCompleto()).isEqualTo(guardado.getNombreCompleto());
-        assertThat(encontrado.get().getNumeroDocumento()).isEqualTo("6001006");
+        assertThat(encontrado.get().getNumeroDocumento()).isEqualTo(documento);
         assertThat(encontrado.get().getIngresosMensuales()).isEqualByComparingTo(guardado.getIngresosMensuales());
         assertThat(encontrado.get().getDeudasMensuales()).isEqualByComparingTo(guardado.getDeudasMensuales());
         assertThat(encontrado.get().getNumeroMoras()).isEqualTo(guardado.getNumeroMoras());
@@ -112,11 +119,11 @@ class SolicitanteRepositoryAdapterIT {
         assertThat(encontrado.get().getAntiguedadLaboral()).isEqualByComparingTo(guardado.getAntiguedadLaboral());
         assertThat(encontrado.get().getFechaRegistro()).isEqualTo(guardado.getFechaRegistro());
 
-        Optional<SolicitanteJpaEntity> persistidoTrasConsultar = solicitanteJpaRepository.findByNumeroDocumento("6001006");
+        Optional<SolicitanteJpaEntity> persistidoTrasConsultar = solicitanteJpaRepository.findByNumeroDocumento(documento);
         assertThat(persistidoTrasConsultar).isPresent();
         assertThat(persistidoTrasConsultar.get().getIdSolicitante()).isEqualTo(guardado.getIdSolicitante());
 
-        assertThat(solicitanteRepositoryAdapter.buscarPorNumeroDocumento("6009998")).isEmpty();
+        assertThat(solicitanteRepositoryAdapter.buscarPorNumeroDocumento(documentoInexistente)).isEmpty();
     }
 
     @Test
@@ -125,7 +132,7 @@ class SolicitanteRepositoryAdapterIT {
         // directamente para comprobar que la restricción de integridad definitiva vive en la
         // base de datos (CHECK ck_solicitante_ingresos_mensuales), no solo en la aplicación.
         SolicitanteJpaEntity entityConIngresosNegativos = new SolicitanteJpaEntity(
-                "Ana María Pérez", "6001005", new BigDecimal("-1"), new BigDecimal("500000"), 0,
+                "Ana María Pérez", documentoPrueba(), new BigDecimal("-1"), new BigDecimal("500000"), 0,
                 HistorialCrediticio.BUENO, new BigDecimal("2.5"));
 
         assertThatThrownBy(() -> solicitanteJpaRepository.saveAndFlush(entityConIngresosNegativos))
@@ -141,5 +148,10 @@ class SolicitanteRepositoryAdapterIT {
                 0,
                 HistorialCrediticio.BUENO,
                 new BigDecimal("2.5"));
+    }
+
+    /** Usa documentos distintos entre ejecuciones para que repetir la IT no choque con filas antiguas. */
+    private String documentoPrueba() {
+        return Long.toString(ThreadLocalRandom.current().nextLong(100_000_000L, 1_000_000_000L));
     }
 }

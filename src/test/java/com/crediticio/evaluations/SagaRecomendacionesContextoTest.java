@@ -35,7 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         "scoring.saga.habilitada=true",
         "scoring.saga.url-base=http://localhost:1",
         "scoring.saga.frecuencia-reenvio=PT1H",
-        "scoring.servicio-jwt.id-clave=scoring-svc-prueba"})
+        "scoring.servicio-jwt.id-clave=scoring-svc-prueba",
+        "scoring.servicio-jwt.permiso-proyeccion=proyeccion:actualizar"})
 @ActiveProfiles("test")
 @DirtiesContext
 class SagaRecomendacionesContextoTest {
