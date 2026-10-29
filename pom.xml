@@ -15,7 +15,7 @@
     <groupId>com.crediticio</groupId>
     <artifactId>motor-scoring-crediticio</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>motor-scoring-crediticio</name>
+    <name>scoring-api-main</name>
     <description>Motor de scoring de riesgo crediticio</description>
 
     <properties>
