@@ -40,9 +40,13 @@ public class SecurityConfig {
     private boolean swaggerHabilitado;
 
     @Bean
+    @SuppressWarnings("java:S4502")
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         RespuestaSeguridadJson respuestas = new RespuestaSeguridadJson();
         http
+                // CSRF desactivado intencionalmente: API stateless autenticada exclusivamente
+                // con JWT Bearer explícito. No se aceptan cookies como credenciales y el
+                // cliente envía Authorization manualmente; no existe autenticación ambiental.
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sesion -> sesion.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
