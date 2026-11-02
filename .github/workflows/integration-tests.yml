@@ -52,7 +52,7 @@ jobs:
         env:
           POSTGRES_DB: motor_scoring_it
           POSTGRES_USER: scoring_ci
-          POSTGRES_PASSWORD: "ci-${{ github.run_id }}-${{ github.run_attempt }}"
+          POSTGRES_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
         ports:
           - 5432:5432
         options: >-
@@ -62,7 +62,7 @@ jobs:
           --health-retries 5
     env:
       DB_USERNAME: scoring_ci
-      DB_PASSWORD: "ci-${{ github.run_id }}-${{ github.run_attempt }}"
+      DB_PASSWORD: ${{ secrets.CI_POSTGRES_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
