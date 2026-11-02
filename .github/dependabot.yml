@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: America/Bogota
+    open-pull-requests-limit: 5
+    groups:
+      spring-boot:
+        patterns:
+          - 'org.springframework.boot:*'
+      test-dependencies:
+        dependency-type: development
+      maven-plugins:
+        patterns:
+          - 'org.apache.maven.plugins:*'
+          - 'org.jacoco:*'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '08:00'
+      timezone: America/Bogota
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - '*'
