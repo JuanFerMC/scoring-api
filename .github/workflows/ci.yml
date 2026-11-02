@@ -7,10 +7,20 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   build-and-test:
+    name: Build, unit tests and package
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -19,9 +29,36 @@ jobs:
       - name: Configurar Java 21
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '21'
-          distribution: 'temurin'
           cache: maven
 
-      - name: Ejecutar pruebas
-        run: ./mvnw -B clean test
+      - name: Dar permisos al Maven Wrapper
+        run: chmod +x mvnw
+
+      # Las pruebas *IT requieren una base PostgreSQL dedicada y autorizada.
+      # CI no debe conectarse a la base de datos desplegada.
+      - name: Compilar, ejecutar pruebas unitarias y empaquetar
+        run: ./mvnw -B -ntp clean verify -DskipITs
+
+      - name: Publicar JAR y reporte JaCoCo
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoring-api-build-${{ github.sha }}
+          path: |
+            target/*.jar
+            target/site/jacoco/jacoco.xml
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Publicar reportes de pruebas para diagnóstico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scoring-api-test-reports-${{ github.run_id }}
+          path: |
+            target/surefire-reports/
+            target/failsafe-reports/
+          if-no-files-found: warn
+          retention-days: 7
