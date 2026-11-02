@@ -258,6 +258,41 @@ class SeguridadIntegracionTest {
         mockMvc.perform(get("/swagger-ui/index.html")).andExpect(status().isUnauthorized());
     }
 
+    @ParameterizedTest(name = "Cookie sin Bearer no autentica {0}")
+    @MethodSource("endpoints")
+    void unaCookieSinBearerNoDebeAutenticar(Endpoint endpoint) throws Exception {
+        mockMvc.perform(endpoint.peticion()
+                        .cookie(new jakarta.servlet.http.Cookie("access_token", "token-falso")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void corsNoDebePermitirCredencialesAutomaticasDelNavegador() throws Exception {
+        mockMvc.perform(options("/api/v1/solicitantes")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "Authorization, Content-Type"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
+
+    @Test
+    void unaCookieSinBearerNoDebeAutenticarLaPeticion() throws Exception {
+        mockMvc.perform(get("/api/v1/solicitantes/documento/1234567")
+                        .cookie(new jakarta.servlet.http.Cookie("access_token", "jwt-falso")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("NO_AUTENTICADO"));
+    }
+
+    @Test
+    void corsNoDebePermitirCredencialesAutomaticas() throws Exception {
+        mockMvc.perform(options("/api/v1/solicitantes")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
+
     @Test
     void noDebeCrearseSesionHttp() throws Exception {
         MvcResult resultado = mockMvc.perform(get("/api/v1/solicitantes/documento/1234567")
