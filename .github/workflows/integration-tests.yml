@@ -62,7 +62,7 @@ jobs:
           --health-retries 5
     env:
       DB_USERNAME: scoring_ci
-      DB_PASSWORD: ""
+      DB_PASSWORD: "ci-${{ github.run_id }}-${{ github.run_attempt }}"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
