@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           read -r -a extra_args <<< "${{ matrix.maven_args }}"
-          ./mvnw -B -ntp test-compile failsafe:integration-test failsafe:verify "-Dit.test=${{ matrix.test_class }}" "-Dspring.profiles.active=it" "-Dspring.datasource.url=jdbc:postgresql://localhost:5432/motor_scoring_it" "${extra_args[@]}}"
+          ./mvnw -B -ntp test-compile failsafe:integration-test failsafe:verify "-Dit.test=${{ matrix.test_class }}" "-Dspring.profiles.active=it" "-Dspring.datasource.url=jdbc:postgresql://localhost:5432/motor_scoring_it" "${extra_args[@]}"
 
       - name: Upload Failsafe reports
         if: always()
