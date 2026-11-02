@@ -8,6 +8,7 @@ import com.crediticio.scoring.domain.ReglaScoringNoEncontradaException;
 import com.crediticio.scoring.ports.output.ReglaScoringRepositoryPort;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
@@ -36,7 +37,7 @@ public class ReglaScoringRepositoryAdapter implements ReglaScoringRepositoryPort
             entityManager.flush();
             entityManager.refresh(entityGuardada);
             return aDominio(entityGuardada);
-        } catch (DataIntegrityViolationException ex) {
+        } catch (DataIntegrityViolationException | ConstraintViolationException ex) {
             throw new ReglaScoringDuplicadaException();
         }
     }
