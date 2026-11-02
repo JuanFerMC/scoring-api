@@ -277,6 +277,23 @@ class SeguridadIntegracionTest {
     }
 
     @Test
+    void unaCookieSinBearerNoDebeAutenticarLaPeticion() throws Exception {
+        mockMvc.perform(get("/api/v1/solicitantes/documento/1234567")
+                        .cookie(new jakarta.servlet.http.Cookie("access_token", "jwt-falso")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.errorCode").value("NO_AUTENTICADO"));
+    }
+
+    @Test
+    void corsNoDebePermitirCredencialesAutomaticas() throws Exception {
+        mockMvc.perform(options("/api/v1/solicitantes")
+                        .header(HttpHeaders.ORIGIN, "http://localhost:3000")
+                        .header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "GET"))
+                .andExpect(status().isOk())
+                .andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS));
+    }
+
+    @Test
     void noDebeCrearseSesionHttp() throws Exception {
         MvcResult resultado = mockMvc.perform(get("/api/v1/solicitantes/documento/1234567")
                         .header(HttpHeaders.AUTHORIZATION, bearer(ANALISTA)))
