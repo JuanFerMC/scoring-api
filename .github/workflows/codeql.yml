@@ -1,29 +1,22 @@
-name: CodeQL
+name: CodeQL scheduled scan
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     - cron: '23 8 * * 1'
   workflow_dispatch:
 
-concurrency:
-  group: codeql-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
 jobs:
   analyze:
-    name: Analyze Java
+    name: Scheduled CodeQL analysis
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,20 +29,18 @@ jobs:
           cache: maven
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: java-kotlin
           build-mode: manual
 
-      # CodeQL autobuild did not select JDK 21. Build explicitly with the
-      # same Maven Wrapper and JDK version used by the project's CI.
       - name: Make Maven Wrapper executable
         run: chmod +x mvnw
 
-      - name: Build project for CodeQL extraction
+      - name: Build project for CodeQL
         run: ./mvnw -B -ntp -DskipTests package
 
-      - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
         with:
-          category: '/language:java'
+          category: '/language:java-kotlin'
