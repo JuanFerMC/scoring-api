@@ -419,7 +419,7 @@
 
 ### US 5.1.1 - Registrar evaluación en historial (2026-11-20)
 
-* **Estado**: cambios incorporados en la rama de integración `integration/us-5-1-1-evaluador`; pendientes de validación CI antes de aprobar.
+* **Estado**: implementación original registrada en el commit `3b22a35` de la rama `integrar-us-5.1.1`. Los cambios del fork se están integrando en la rama local `integrar-fork-juanfer`; la integración y sus pruebas están pendientes de validación.
 * **Correspondencia con el modelo**: `score_calculado` = `score_total` (excepción a §12 aprobada en HU12; sin columna nueva), `nivel_riesgo` = `categoria`; `id_solicitante` y `fecha_evaluacion` ya existían. Nuevo: `usuario_evaluador` (UUID, `sub` del JWT).
 * **Implementación**: migración `V13__add_usuario_evaluador_evaluacion.sql` (V12 ya está ocupada por el outbox de proyección Query); columna nullable para histórico y triggers de obligatoriedad en nuevas filas e inmutabilidad; `UsuarioEvaluadorPort` + `UsuarioEvaluadorAdapter` (reutiliza `ActorActualPort`); `EvaluacionSinEvaluadorException` (401 `NO_AUTENTICADO`); `@Positive` en `idSolicitante` (400); `usuarioEvaluador` aditivo en `EvaluacionResponse`.
 * **Corrección del test H2**: se reemplaza `RegistrarAltaSolicitanteEnProyeccionPort` por un mock en `RegistroHistorialEvaluacionFlujoTest`; el test verifica el flujo de evaluación y el usuario del JWT sin ejecutar SQL PostgreSQL del outbox en H2.
