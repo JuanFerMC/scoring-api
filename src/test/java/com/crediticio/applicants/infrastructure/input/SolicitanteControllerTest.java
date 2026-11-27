@@ -303,4 +303,37 @@ class SolicitanteControllerTest {
 
         verifyNoInteractions(registrarSolicitanteUseCase);
     }
+
+    // Fase 2 (refinamiento de API): errores de formato del cliente no deben responder 500.
+
+    @Test
+    void debeRetornar415CuandoElContentTypeNoEsJson() throws Exception {
+        mockMvc.perform(post("/api/v1/solicitantes").with(conRol(JwtConfig.ROL_ANALISTA))
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("no es json"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.errorCode").value("UNSUPPORTED_MEDIA_TYPE"))
+                .andExpect(header().string("Accept", org.hamcrest.Matchers.containsString("application/json")))
+                .andExpect(result -> {
+                    String traceIdHeader = result.getResponse().getHeader("X-Trace-Id");
+                    String traceIdBody = com.jayway.jsonpath.JsonPath.read(
+                            result.getResponse().getContentAsString(), "$.traceId");
+                    assertThat(traceIdBody).isEqualTo(traceIdHeader);
+                });
+
+        verifyNoInteractions(registrarSolicitanteUseCase);
+    }
+
+    @Test
+    void debeRetornar406CuandoElClienteNoAceptaJson() throws Exception {
+        SolicitanteDetalleResponse response = new SolicitanteDetalleResponse(
+                1L, "Ana María Pérez", "1234567", new BigDecimal("3000000"), new BigDecimal("500000"),
+                0, HistorialCrediticio.BUENO, new BigDecimal("2.5"), LocalDateTime.of(2026, 1, 1, 10, 0));
+        when(consultarSolicitanteUseCase.consultarPorNumeroDocumento("1234567")).thenReturn(response);
+
+        mockMvc.perform(get("/api/v1/solicitantes/documento/1234567").with(conRol(JwtConfig.ROL_ANALISTA))
+                        .accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(header().exists("X-Trace-Id"));
+    }
 }

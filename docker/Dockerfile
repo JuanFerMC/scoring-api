@@ -1,8 +1,10 @@
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
+# Dependencias en una capa propia: solo se vuelven a descargar cuando cambia pom.xml.
 COPY pom.xml .
+RUN mvn -B -ntp dependency:go-offline
 COPY src ./src
-RUN mvn clean package -DskipTests
+RUN mvn -B -ntp clean package -DskipTests
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app

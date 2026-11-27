@@ -1,0 +1,74 @@
+# Despliegue del entorno local integrado en Kubernetes (Docker Desktop). Equivale a docker-compose.yml.
+#
+# No aplicar a mano: kubernetes/desplegar.ps1 crea primero los Secret (desde orquestacion/.env y claves RSA
+# generadas en el momento) y el ConfigMap con los scripts SQL oficiales de evaluation-query-api, y después
+# ejecuta "kubectl apply -k" sobre esta carpeta. Guía: orquestacion/README.md, sección Kubernetes.
+#
+# Este archivo vive en orquestacion/ (no en kubernetes/) porque kustomize solo lee archivos dentro de su carpeta:
+# así reutiliza sin copias prometheus/, grafana/ y postgres/, los mismos que usa Docker Compose.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: crediticio
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: crediticio
+    includeSelectors: false
+
+resources:
+  - kubernetes/namespace.yaml
+  - kubernetes/postgres.yaml
+  - kubernetes/job-rol-crediticio.yaml
+  - kubernetes/scoring-api.yaml
+  - kubernetes/auth-api.yaml
+  - kubernetes/jobs-consulta.yaml
+  - kubernetes/evaluation-query-api.yaml
+  - kubernetes/prometheus.yaml
+  - kubernetes/grafana.yaml
+
+configMapGenerator:
+  # Valores no secretos, iguales a los valores por defecto de docker-compose.yml.
+  - name: crediticio-config
+    literals:
+      - JWT_ISSUER=crediticio-auth
+      - JWT_EXPIRATION_MS=900000
+      - JWT_AUDIENCES=scoring-api,evaluation-query-api
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000
+      - SAGA_HABILITADA=true
+      - SCORING_SERVICE_JWT_KEY_ID=local-scoring-service-v1
+      - METRICS_SCRAPER_USER=prometheus-scraper
+  - name: postgres-initdb
+    files:
+      - postgres/initdb/01-rol-crediticio.sh
+  - name: scripts-postgres
+    files:
+      - postgres/asegurar-rol-crediticio.sh
+  - name: scripts-consulta
+    files:
+      - postgres/preparar-consulta.sh
+      - postgres/permisos-consulta.sh
+  - name: prometheus-config
+    options:
+      labels:
+        app.kubernetes.io/component: observabilidad
+    files:
+      - prometheus/prometheus.yml
+  - name: grafana-datasources
+    options:
+      labels:
+        app.kubernetes.io/component: observabilidad
+    files:
+      - grafana/provisioning/datasources/prometheus.yml
+  - name: grafana-dashboards-proveedor
+    options:
+      labels:
+        app.kubernetes.io/component: observabilidad
+    files:
+      - grafana/provisioning/dashboards/proveedor.yml
+  - name: grafana-dashboards
+    options:
+      labels:
+        app.kubernetes.io/component: observabilidad
+    files:
+      - grafana/dashboards/crediticio-apis.json

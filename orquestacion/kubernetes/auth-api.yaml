@@ -1,0 +1,119 @@
+# auth-api (Security-Module): emite los JWT de usuario. Migra public V100–V111 después de scoring-api, igual que
+# en docker-compose.yml (comparten public y el historial Flyway).
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-api
+spec:
+  selector:
+    app.kubernetes.io/name: auth-api
+  ports:
+    - name: http
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-api
+spec:
+  replicas: 1
+  # Una sola réplica que migra la base al arrancar: Recreate evita tener a la vez el pod viejo y el nuevo (y su
+  # memoria). 30 min de margen: el pod espera a sus dependencias y el primer arranque en Docker Desktop es lento.
+  strategy:
+    type: Recreate
+  progressDeadlineSeconds: 1800
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: auth-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: auth-api
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      initContainers:
+        # Equivale a depends_on: scoring-api (service_healthy): migraciones en orden determinista.
+        - name: esperar-scoring-api
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until wget -qO- http://scoring-api:8080/actuator/health >/dev/null 2>&1; do echo 'Esperando scoring-api...'; sleep 5; done"]
+      containers:
+        - name: auth-api
+          image: crediticio/auth-api:local
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8081
+          env:
+            # Equipo con poca memoria (Docker Desktop): heap acotado al límite del contenedor, GC serie (menos
+            # memoria que G1 con una sola CPU efectiva) y compilación JIT de nivel 1 (arranque con menos CPU).
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"
+            - name: SERVER_PORT
+              value: "8081"
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:postgresql://postgres:5432/$(POSTGRES_DB)
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_USER}}
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_PASSWORD}}
+            - name: JWT_PRIVATE_KEY_LOCATION
+              value: file:/claves/auth/jwt-privada.pem
+            - name: JWT_PUBLIC_KEY_LOCATION
+              value: file:/claves/auth/jwt-publica.pem
+            - name: JWT_EXPIRATION_MS
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: JWT_EXPIRATION_MS}}
+            - name: JWT_ISSUER
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: JWT_ISSUER}}
+            - name: JWT_AUDIENCES
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: JWT_AUDIENCES}}
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: CORS_ALLOWED_ORIGINS}}
+            - name: INIT_ADMIN_EMAIL
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: INIT_ADMIN_EMAIL}}
+            - name: INIT_ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: INIT_ADMIN_PASSWORD}}
+            - name: INIT_ADMIN_NOMBRE
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: INIT_ADMIN_NOMBRE}}
+            # Métricas (Security-Module/docs/METRICAS_PROMETHEUS.md).
+            - name: AUTH_METRICS_ENABLED
+              value: "true"
+            - name: AUTH_METRICS_USERNAME
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: METRICS_SCRAPER_USER}}
+            - name: AUTH_METRICS_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: METRICS_SCRAPER_PASSWORD}}
+          volumeMounts:
+            # Única API que monta la clave privada de firma de los JWT de usuario.
+            - name: claves-auth
+              mountPath: /claves/auth
+              readOnly: true
+          startupProbe:
+            httpGet: {path: /actuator/health, port: http}
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: http}
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          # Vida: solo que la JVM acepte conexiones (tcpSocket). No usa /actuator/health porque incluye la base de
+          # datos: una base lenta o caída reiniciaría la API sin motivo. Disponibilidad sí la usa (sale del tráfico).
+          livenessProbe:
+            tcpSocket: {port: http}
+            timeoutSeconds: 5
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {memory: 768Mi}
+      volumes:
+        - name: claves-auth
+          secret:
+            secretName: claves-auth
+            defaultMode: 0444

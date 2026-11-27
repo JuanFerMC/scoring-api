@@ -95,6 +95,8 @@ El UUID del ejemplo es ilustrativo; en una respuesta real corresponde al `sub` d
 | 403 | `ACCESO_DENEGADO` | El rol autenticado no está autorizado |
 | 404 | `SOLICITANTE_NO_ENCONTRADO` / `EVALUACION_NO_ENCONTRADA` | Recurso inexistente |
 | 409 | Según la operación | Política no disponible, puntaje sin clasificación u otra condición de negocio documentada en OpenAPI |
+| 406 | (sin cuerpo) | El encabezado `Accept` no admite JSON; el `traceId` viaja en `X-Trace-Id` |
+| 415 | `UNSUPPORTED_MEDIA_TYPE` | `Content-Type` distinto de JSON en una operación con cuerpo; `details` y el encabezado `Accept` indican los tipos admitidos |
 | 500 | `INTERNAL_ERROR` | Error interno no controlado |
 
 Los errores usan el sobre común `ApiError` (`errorCode`, `message`, `details`, `traceId`) y la

@@ -1,0 +1,17 @@
+# Contexto de construcción de docker/Dockerfile (la raíz del repositorio). La imagen solo necesita pom.xml y src/.
+.git/
+target/
+.idea/
+.vscode/
+*.iml
+# Secretos y claves: nunca entran en la imagen.
+.env
+.env.*
+*.pem
+keys/
+keys-service/
+# Orquestación local y documentación: no forman parte del artefacto.
+orquestacion/
+docs/
+database/
+*.md
