@@ -30,10 +30,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -70,6 +72,18 @@ class SeguridadIntegracionTest {
     static void configurarClavePublica(DynamicPropertyRegistry registro) {
         registro.add("scoring.jwt.clave-publica",
                 () -> "file:" + ClavesRsaPrueba.escribirClavePublica(CLAVES, directorioClaves));
+        // Fase 4: endpoint de Prometheus expuesto y protegido con la cuenta técnica del scraper.
+        registro.add("management.endpoints.web.exposure.include", () -> "health,prometheus");
+        // Las pruebas de Spring Boot desactivan por defecto la exportación de métricas: se habilita la de Prometheus.
+        registro.add("management.prometheus.metrics.export.enabled", () -> true);
+        registro.add("scoring.metrics.enabled", () -> true);
+        registro.add("scoring.metrics.username", () -> "prometheus-test");
+        registro.add("scoring.metrics.password", () -> "prometheus-test-password");
+    }
+
+    private static String basicMetricas(String usuario, String clave) {
+        return "Basic " + Base64.getEncoder().encodeToString(
+                (usuario + ":" + clave).getBytes(StandardCharsets.UTF_8));
     }
 
     @Autowired
@@ -250,6 +264,51 @@ class SeguridadIntegracionTest {
         mockMvc.perform(get("/actuator/env")).andExpect(status().isUnauthorized());
         mockMvc.perform(get("/actuator/env").header(HttpHeaders.AUTHORIZATION, bearer(ADMIN)))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void prometheusDebeRechazarAccesoAnonimo() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void prometheusDebeAceptarLaCuentaTecnicaYDevolverMetricasReales() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus")
+                        .header(HttpHeaders.AUTHORIZATION, basicMetricas("prometheus-test", "prometheus-test-password")))
+                .andExpect(status().isOk())
+                .andExpect(result -> assertThat(result.getResponse().getContentAsString())
+                        .contains("# HELP")
+                        .contains("jvm_memory_used_bytes"));
+    }
+
+    @Test
+    void prometheusDebeRechazarCredencialesBasicIncorrectas() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus")
+                        .header(HttpHeaders.AUTHORIZATION, basicMetricas("prometheus-test", "otra-clave")))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/actuator/prometheus")
+                        .header(HttpHeaders.AUTHORIZATION, basicMetricas("otro-usuario", "prometheus-test-password")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void prometheusNoDebeAceptarJwtDeUsuarioComoCredencialDeScrape() throws Exception {
+        mockMvc.perform(get("/actuator/prometheus").header(HttpHeaders.AUTHORIZATION, bearer(ADMIN)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void prometheusDebeDenegarMetodosDistintosDeGet() throws Exception {
+        mockMvc.perform(request(HttpMethod.POST, "/actuator/prometheus")
+                        .header(HttpHeaders.AUTHORIZATION, basicMetricas("prometheus-test", "prometheus-test-password")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void laCuentaTecnicaDeMetricasNoDebeDarAccesoALaApi() throws Exception {
+        mockMvc.perform(get("/api/v1/politicas-clasificacion/vigente")
+                        .header(HttpHeaders.AUTHORIZATION, basicMetricas("prometheus-test", "prometheus-test-password")))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

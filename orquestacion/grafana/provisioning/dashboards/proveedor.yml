@@ -1,0 +1,11 @@
+# Carga los dashboards versionados en orquestacion/grafana/dashboards (montados en /var/lib/grafana/dashboards).
+apiVersion: 1
+
+providers:
+  - name: crediticio
+    folder: Crediticio
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

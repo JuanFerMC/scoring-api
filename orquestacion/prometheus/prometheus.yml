@@ -1,0 +1,45 @@
+# Prometheus del entorno local integrado (docker compose). Sin secretos: la contraseña de la cuenta técnica del
+# scraper se lee de /tmp/scraper-password, que el contenedor escribe al arrancar desde METRICS_SCRAPER_PASSWORD
+# (orquestacion/.env) en un tmpfs que no se persiste.
+#
+# Comprobar la configuración:  docker compose exec prometheus promtool check config /etc/prometheus/prometheus.yml
+
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: scoring-api
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: prometheus-scraper
+      password_file: /tmp/scraper-password
+    static_configs:
+      - targets: ["scoring-api:8080"]
+        labels:
+          servicio: scoring-api
+
+  - job_name: auth-api
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: prometheus-scraper
+      password_file: /tmp/scraper-password
+    static_configs:
+      - targets: ["auth-api:8081"]
+        labels:
+          servicio: auth-api
+
+  - job_name: evaluation-query-api
+    metrics_path: /actuator/prometheus
+    basic_auth:
+      username: prometheus-scraper
+      password_file: /tmp/scraper-password
+    static_configs:
+      - targets: ["evaluation-query-api:8082"]
+        labels:
+          servicio: evaluation-query-api

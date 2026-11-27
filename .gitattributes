@@ -1,3 +1,5 @@
 /mvnw text eol=lf
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+# Scripts de shell que se ejecutan dentro de contenedores Linux: siempre LF, también en Windows.
+*.sh text eol=lf

@@ -1,0 +1,119 @@
+# Pasos de base de datos de evaluation-query-api, con los mismos scripts que docker-compose.yml. Estos, a su vez,
+# ejecutan los scripts oficiales evaluation-query-api/docs/operacion/01-*.sql y 02-*.sql (ConfigMap
+# "operacion-consulta", que crea kubernetes/desplegar.ps1 desde ese repositorio). Ambos son seguros de repetir:
+# desplegar.ps1 borra estos Job antes de cada "apply" porque un Job no admite cambios una vez creado.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: consulta-preparar
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consulta-preparar
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      restartPolicy: Never
+      initContainers:
+        # 01-preparar-antes-de-migrar.sql necesita las tablas de scoring-api: equivale a depends_on scoring-api.
+        - name: esperar-scoring-api
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until wget -qO- http://scoring-api:8080/actuator/health >/dev/null 2>&1; do echo 'Esperando scoring-api...'; sleep 5; done"]
+      containers:
+        - name: preparar
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "/scripts/preparar-consulta.sh"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_USER}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_PASSWORD}}
+            - name: CONSULTA_APP_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_APP_USER}}
+            - name: CONSULTA_APP_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_APP_PASSWORD}}
+            - name: CONSULTA_MIGRADOR_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_MIGRADOR_USER}}
+            - name: CONSULTA_MIGRADOR_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_MIGRADOR_PASSWORD}}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: operacion
+              mountPath: /operacion
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: scripts-consulta
+        - name: operacion
+          configMap:
+            name: operacion-consulta
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: consulta-permisos
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: consulta-permisos
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      restartPolicy: Never
+      initContainers:
+        # 02-permisos-despues-de-migrar.sql va después de que Query migre su esquema: depends_on Query (healthy).
+        - name: esperar-evaluation-query-api
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "until wget -qO- http://evaluation-query-api:8082/actuator/health >/dev/null 2>&1; do echo 'Esperando evaluation-query-api...'; sleep 5; done"]
+      containers:
+        - name: permisos
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "/scripts/permisos-consulta.sh"]
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGDATABASE
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_USER}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_PASSWORD}}
+            - name: CONSULTA_APP_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_APP_USER}}
+            - name: CONSULTA_APP_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_APP_PASSWORD}}
+            - name: CONSULTA_MIGRADOR_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_MIGRADOR_USER}}
+            - name: CONSULTA_MIGRADOR_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CONSULTA_MIGRADOR_PASSWORD}}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: operacion
+              mountPath: /operacion
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: scripts-consulta
+        - name: operacion
+          configMap:
+            name: operacion-consulta

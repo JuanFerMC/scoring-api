@@ -1,0 +1,97 @@
+# PostgreSQL 16 con almacenamiento persistente. Mismo papel que el servicio "postgres" de docker-compose.yml:
+# en un volumen nuevo, 01-rol-crediticio.sh crea el rol de scoring-api y auth-api (sin superusuario).
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: POSTGRES_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_USER}}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_ADMIN_PASSWORD}}
+            - name: CREDITICIO_DB_USER
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_USER}}
+            - name: CREDITICIO_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_PASSWORD}}
+            # Subcarpeta: la raíz de un volumen puede traer archivos del sistema (lost+found) e impedir initdb.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: datos
+              mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+          # La primera inicialización (initdb) puede ser lenta en Docker Desktop: la sonda de arranque le da hasta
+          # 10 minutos antes de que la de vida pueda reiniciar el contenedor a mitad de initdb. timeoutSeconds: con
+          # el equipo cargado, pg_isready puede tardar más de 1 s (valor por defecto) y Kubernetes lo daría por caído.
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: initdb
+          configMap:
+            name: postgres-initdb
+            defaultMode: 0555
+  volumeClaimTemplates:
+    - metadata:
+        name: datos
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

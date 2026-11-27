@@ -1,0 +1,13 @@
+# Fuente de datos aprovisionada: Grafana queda conectado a Prometheus al arrancar, sin configuración manual.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus-local
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

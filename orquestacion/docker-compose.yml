@@ -1,0 +1,268 @@
+# Entorno local integrado: PostgreSQL + auth-api (Security-Module) + scoring-api + evaluation-query-api,
+# con observabilidad: Prometheus (http://localhost:9090) y Grafana (http://localhost:3001).
+#
+# Uso (desde esta carpeta, con orquestacion/.env completado a partir de .env.example):
+#   docker compose up -d --build
+# Guía completa, orden de arranque y verificación: orquestacion/README.md.
+#
+# Solo para desarrollo y pruebas locales. Ningún secreto se versiona: las contraseñas vienen de .env (ignorado
+# por Git) y las claves RSA se generan dentro de volúmenes Docker en el primer arranque.
+#
+# Orden de arranque (cada paso espera al anterior):
+#   postgres ─┬─ scoring-api (migra public V1–V13) ─┬─ auth-api (migra public V100–V111)
+#   claves ───┘                                     └─ consulta-preparar (roles y esquema consulta)
+#                                                        └─ evaluation-query-api (migra consulta V1–V2)
+#                                                             └─ consulta-permisos (GRANT tras migrar)
+#   prometheus (lee /actuator/prometheus de las tres APIs con la cuenta técnica) ─ grafana
+
+name: crediticio
+
+# Cuenta técnica del scraper de Prometheus, común a las tres APIs en este entorno local (HTTP Basic, independiente
+# de los JWT de usuario). El usuario es fijo porque prometheus/prometheus.yml no admite variables de entorno.
+x-metricas-usuario: &metricas-usuario prometheus-scraper
+
+x-healthcheck-api: &healthcheck-api
+  interval: 10s
+  timeout: 5s
+  start_period: 120s
+  retries: 12
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-db_scoring}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Defina POSTGRES_ADMIN_PASSWORD en orquestacion/.env}
+      # Solo los usa postgres/initdb/01-rol-crediticio.sh en la primera inicialización del volumen.
+      CREDITICIO_DB_USER: ${CREDITICIO_DB_USER:-crediticio_app}
+      CREDITICIO_DB_PASSWORD: ${CREDITICIO_DB_PASSWORD:?Defina CREDITICIO_DB_PASSWORD en orquestacion/.env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      # Solo en la máquina local; 5433 para no chocar con un PostgreSQL instalado en el equipo.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Genera, solo si no existen, el par RSA de auth-api (tokens de usuario) y el par de servicio de scoring-api
+  # (saga hacia Query). Cada API monta únicamente las claves que necesita; las privadas no salen de su volumen.
+  claves:
+    image: alpine:3.20
+    entrypoint: ["sh", "/scripts/generar-claves.sh"]
+    volumes:
+      - ./claves/generar-claves.sh:/scripts/generar-claves.sh:ro
+      - claves-auth:/claves/auth
+      - claves-servicio-scoring:/claves/servicio
+      - claves-publicas:/claves/publicas
+    restart: "no"
+
+  scoring-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: crediticio/scoring-api:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      claves:
+        condition: service_completed_successfully
+    environment:
+      DB_URL: postgresql://postgres:5432/${POSTGRES_DB:-db_scoring}
+      DB_USERNAME: ${CREDITICIO_DB_USER:-crediticio_app}
+      DB_PASSWORD: ${CREDITICIO_DB_PASSWORD:?Defina CREDITICIO_DB_PASSWORD en orquestacion/.env}
+      # Solo en este entorno local y desechable: aplica las migraciones pendientes al arrancar. En los
+      # despliegues reales sigue en false (docs/operacion/despliegue-v10-v11.md).
+      SCORING_FLYWAY_MIGRAR_AL_ARRANCAR: "true"
+      AUTH_JWT_ISSUER: ${JWT_ISSUER:-crediticio-auth}
+      SCORING_JWT_PUBLIC_KEY_LOCATION: file:/claves/publicas/jwt-publica.pem
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      SCORING_SAGA_HABILITADA: ${SAGA_HABILITADA:-true}
+      EVALUATION_QUERY_API_BASE_URL: http://evaluation-query-api:8082
+      SCORING_SERVICE_JWT_ISSUER: scoring-api
+      SCORING_SERVICE_JWT_KEY_ID: ${SCORING_SERVICE_JWT_KEY_ID:-local-scoring-service-v1}
+      SCORING_SERVICE_JWT_PRIVATE_KEY_LOCATION: file:/claves/servicio/scoring-service-private.pem
+      SCORING_SERVICE_JWT_PUBLIC_KEY_LOCATION: file:/claves/servicio/scoring-service-public.pem
+      # Métricas (docs/operacion/metricas-prometheus.md): exponer el endpoint y activar la cuenta técnica.
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+      SCORING_METRICS_ENABLED: "true"
+      SCORING_METRICS_USERNAME: *metricas-usuario
+      SCORING_METRICS_PASSWORD: ${METRICS_SCRAPER_PASSWORD:?Defina METRICS_SCRAPER_PASSWORD en orquestacion/.env}
+    volumes:
+      - claves-publicas:/claves/publicas:ro
+      - claves-servicio-scoring:/claves/servicio:ro
+    ports:
+      - "127.0.0.1:${SCORING_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health || exit 1"]
+      <<: *healthcheck-api
+
+  auth-api:
+    build:
+      context: ${SECURITY_MODULE_DIR:-../../Security-Module}
+    image: crediticio/auth-api:local
+    depends_on:
+      # Comparte public y flyway_schema_history con scoring-api: migra después para un orden determinista.
+      scoring-api:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: "8081"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-db_scoring}
+      SPRING_DATASOURCE_USERNAME: ${CREDITICIO_DB_USER:-crediticio_app}
+      SPRING_DATASOURCE_PASSWORD: ${CREDITICIO_DB_PASSWORD:?Defina CREDITICIO_DB_PASSWORD en orquestacion/.env}
+      JWT_PRIVATE_KEY_LOCATION: file:/claves/auth/jwt-privada.pem
+      JWT_PUBLIC_KEY_LOCATION: file:/claves/auth/jwt-publica.pem
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-900000}
+      JWT_ISSUER: ${JWT_ISSUER:-crediticio-auth}
+      JWT_AUDIENCES: scoring-api,evaluation-query-api
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      INIT_ADMIN_EMAIL: ${INIT_ADMIN_EMAIL:-}
+      INIT_ADMIN_PASSWORD: ${INIT_ADMIN_PASSWORD:-}
+      INIT_ADMIN_NOMBRE: ${INIT_ADMIN_NOMBRE:-Administrador}
+      # Métricas (Security-Module/docs/METRICAS_PROMETHEUS.md).
+      AUTH_METRICS_ENABLED: "true"
+      AUTH_METRICS_USERNAME: *metricas-usuario
+      AUTH_METRICS_PASSWORD: ${METRICS_SCRAPER_PASSWORD:?Defina METRICS_SCRAPER_PASSWORD en orquestacion/.env}
+    volumes:
+      - claves-auth:/claves/auth:ro
+    ports:
+      - "127.0.0.1:${AUTH_HOST_PORT:-8081}:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"]
+      <<: *healthcheck-api
+
+  # Ejecuta el script oficial evaluation-query-api/docs/operacion/01-preparar-antes-de-migrar.sql (roles de
+  # Query, SELECT sobre las tablas de scoring y esquema consulta) y asigna las contraseñas desde .env.
+  consulta-preparar:
+    image: postgres:16-alpine
+    depends_on:
+      scoring-api:
+        condition: service_healthy
+    entrypoint: ["sh", "/scripts/preparar-consulta.sh"]
+    environment: &entorno-consulta-db
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-db_scoring}
+      PGUSER: ${POSTGRES_ADMIN_USER:-postgres}
+      PGPASSWORD: ${POSTGRES_ADMIN_PASSWORD:?Defina POSTGRES_ADMIN_PASSWORD en orquestacion/.env}
+      CONSULTA_APP_USER: ${CONSULTA_APP_USER:-consulta_app}
+      CONSULTA_APP_PASSWORD: ${CONSULTA_APP_PASSWORD:?Defina CONSULTA_APP_PASSWORD en orquestacion/.env}
+      CONSULTA_MIGRADOR_USER: ${CONSULTA_MIGRADOR_USER:-consulta_migrador}
+      CONSULTA_MIGRADOR_PASSWORD: ${CONSULTA_MIGRADOR_PASSWORD:?Defina CONSULTA_MIGRADOR_PASSWORD en orquestacion/.env}
+    volumes:
+      - ./postgres/preparar-consulta.sh:/scripts/preparar-consulta.sh:ro
+      - ${EVALUATION_QUERY_API_DIR:-../../evaluation-query-api}/docs/operacion:/operacion:ro
+    restart: "no"
+
+  evaluation-query-api:
+    build:
+      context: ${EVALUATION_QUERY_API_DIR:-../../evaluation-query-api}
+    image: crediticio/evaluation-query-api:local
+    depends_on:
+      consulta-preparar:
+        condition: service_completed_successfully
+      claves:
+        condition: service_completed_successfully
+    environment:
+      EVALUATION_QUERY_API_PORT: "8082"
+      AUTH_JWT_ISSUER: ${JWT_ISSUER:-crediticio-auth}
+      EVALUATION_QUERY_JWT_PUBLIC_KEY_LOCATION: file:/claves/publicas/jwt-publica.pem
+      EVALUATION_QUERY_DB_URL: postgresql://postgres:5432/${POSTGRES_DB:-db_scoring}
+      EVALUATION_QUERY_DB_USERNAME: ${CONSULTA_APP_USER:-consulta_app}
+      EVALUATION_QUERY_DB_PASSWORD: ${CONSULTA_APP_PASSWORD:?Defina CONSULTA_APP_PASSWORD en orquestacion/.env}
+      EVALUATION_QUERY_DB_SCHEMA: consulta
+      # Solo en este entorno local: migra el esquema consulta con el rol migrador (no con el de la aplicación).
+      EVALUATION_QUERY_FLYWAY_MIGRAR_AL_ARRANCAR: "true"
+      SPRING_FLYWAY_USER: ${CONSULTA_MIGRADOR_USER:-consulta_migrador}
+      SPRING_FLYWAY_PASSWORD: ${CONSULTA_MIGRADOR_PASSWORD:?Defina CONSULTA_MIGRADOR_PASSWORD en orquestacion/.env}
+      EVALUATION_QUERY_SAGA_HABILITADA: ${SAGA_HABILITADA:-true}
+      SCORING_SERVICE_JWT_ISSUER: scoring-api
+      SCORING_SERVICE_JWT_KEY_ID: ${SCORING_SERVICE_JWT_KEY_ID:-local-scoring-service-v1}
+      SCORING_SERVICE_JWT_PUBLIC_KEY_LOCATION: file:/claves/publicas/scoring-service-public.pem
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+      # Métricas (evaluation-query-api/docs/operacion/seguridad-metricas-prometheus.md).
+      EVALUATION_QUERY_METRICS_ENABLED: "true"
+      EVALUATION_QUERY_METRICS_USERNAME: *metricas-usuario
+      EVALUATION_QUERY_METRICS_PASSWORD: ${METRICS_SCRAPER_PASSWORD:?Defina METRICS_SCRAPER_PASSWORD en orquestacion/.env}
+    volumes:
+      - claves-publicas:/claves/publicas:ro
+    ports:
+      - "127.0.0.1:${QUERY_HOST_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8082/actuator/health || exit 1"]
+      <<: *healthcheck-api
+
+  # Ejecuta el script oficial 02-permisos-despues-de-migrar.sql (idempotente) cuando Query ya migró su esquema.
+  consulta-permisos:
+    image: postgres:16-alpine
+    depends_on:
+      evaluation-query-api:
+        condition: service_healthy
+    entrypoint: ["sh", "/scripts/permisos-consulta.sh"]
+    environment: *entorno-consulta-db
+    volumes:
+      - ./postgres/permisos-consulta.sh:/scripts/permisos-consulta.sh:ro
+      - ${EVALUATION_QUERY_API_DIR:-../../evaluation-query-api}/docs/operacion:/operacion:ro
+    restart: "no"
+
+  # Observabilidad. La contraseña del scraper se escribe al arrancar en /tmp (tmpfs, no se persiste) para que
+  # prometheus.yml la lea con password_file: no queda en ningún archivo versionado ni en el volumen de datos.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        umask 077 && printf '%s' "$$METRICS_SCRAPER_PASSWORD" > /tmp/scraper-password &&
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+        --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=7d
+    environment:
+      METRICS_SCRAPER_PASSWORD: ${METRICS_SCRAPER_PASSWORD:?Defina METRICS_SCRAPER_PASSWORD en orquestacion/.env}
+    tmpfs:
+      - /tmp
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  grafana:
+    image: grafana/grafana:12.1.0
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Defina GRAFANA_ADMIN_PASSWORD en orquestacion/.env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/crediticio-apis.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # 3001 en el equipo: 3000 suele usarlo el frontend (CORS_ALLOWED_ORIGINS).
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3001}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  postgres-data:
+  claves-auth:
+  claves-servicio-scoring:
+  claves-publicas:

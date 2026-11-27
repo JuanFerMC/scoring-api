@@ -1,0 +1,146 @@
+# scoring-api: migra public V1–V13 al arrancar (solo en este entorno local) y llama a evaluation-query-api (saga)
+# con su token de servicio. Mismas variables que docker-compose.yml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: scoring-api
+spec:
+  selector:
+    app.kubernetes.io/name: scoring-api
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scoring-api
+spec:
+  replicas: 1
+  # Una sola réplica que migra la base al arrancar: Recreate evita tener a la vez el pod viejo y el nuevo (y su
+  # memoria). 30 min de margen: el pod espera a sus dependencias y el primer arranque en Docker Desktop es lento.
+  strategy:
+    type: Recreate
+  progressDeadlineSeconds: 1800
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scoring-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scoring-api
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      initContainers:
+        # Equivale a depends_on: postgres (service_healthy), y además espera al Job rol-crediticio: no basta con
+        # que PostgreSQL responda, el rol de la API debe existir y aceptar su contraseña.
+        - name: esperar-postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - >-
+              until PGPASSWORD="$DB_PASSWORD" psql -h postgres -U "$DB_USERNAME" -d "$POSTGRES_DB" -tAc 'SELECT 1'
+              >/dev/null 2>&1; do echo 'Esperando PostgreSQL y el rol de la API (Job rol-crediticio)...'; sleep 3; done
+          env:
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: DB_USERNAME
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_USER}}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_PASSWORD}}
+      containers:
+        - name: scoring-api
+          image: crediticio/scoring-api:local
+          # Imagen construida en el equipo (docker compose build): Kubernetes no debe buscarla en un registro.
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Equipo con poca memoria (Docker Desktop): heap acotado al límite del contenedor, GC serie (menos
+            # memoria que G1 con una sola CPU efectiva) y compilación JIT de nivel 1 (arranque con menos CPU).
+            - name: JAVA_TOOL_OPTIONS
+              value: "-XX:MaxRAMPercentage=65 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"
+            - name: SCORING_API_PORT
+              value: "8080"
+            - name: POSTGRES_DB
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: POSTGRES_DB}}
+            - name: DB_URL
+              value: postgresql://postgres:5432/$(POSTGRES_DB)
+            - name: DB_USERNAME
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_USER}}
+            - name: DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: CREDITICIO_DB_PASSWORD}}
+            # Solo en este entorno local y desechable (igual que en docker-compose.yml).
+            - name: SCORING_FLYWAY_MIGRAR_AL_ARRANCAR
+              value: "true"
+            - name: AUTH_JWT_ISSUER
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: JWT_ISSUER}}
+            - name: SCORING_JWT_PUBLIC_KEY_LOCATION
+              value: file:/claves/publicas/jwt-publica.pem
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: CORS_ALLOWED_ORIGINS}}
+            - name: SCORING_SAGA_HABILITADA
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: SAGA_HABILITADA}}
+            - name: EVALUATION_QUERY_API_BASE_URL
+              value: http://evaluation-query-api:8082
+            - name: SCORING_SERVICE_JWT_ISSUER
+              value: scoring-api
+            - name: SCORING_SERVICE_JWT_KEY_ID
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: SCORING_SERVICE_JWT_KEY_ID}}
+            - name: SCORING_SERVICE_JWT_PRIVATE_KEY_LOCATION
+              value: file:/claves/servicio/scoring-service-private.pem
+            - name: SCORING_SERVICE_JWT_PUBLIC_KEY_LOCATION
+              value: file:/claves/servicio/scoring-service-public.pem
+            # Métricas (docs/operacion/metricas-prometheus.md).
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: health,prometheus
+            - name: SCORING_METRICS_ENABLED
+              value: "true"
+            - name: SCORING_METRICS_USERNAME
+              valueFrom: {configMapKeyRef: {name: crediticio-config, key: METRICS_SCRAPER_USER}}
+            - name: SCORING_METRICS_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: METRICS_SCRAPER_PASSWORD}}
+          volumeMounts:
+            - name: claves-publicas
+              mountPath: /claves/publicas
+              readOnly: true
+            - name: claves-servicio-scoring
+              mountPath: /claves/servicio
+              readOnly: true
+          # Solo /actuator/health es público en las tres APIs: /actuator/health/liveness y /readiness
+          # responderían 401, por eso las tres sondas usan la misma ruta.
+          startupProbe:
+            httpGet: {path: /actuator/health, port: http}
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: {path: /actuator/health, port: http}
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          # Vida: solo que la JVM acepte conexiones (tcpSocket). No usa /actuator/health porque incluye la base de
+          # datos: una base lenta o caída reiniciaría la API sin motivo. Disponibilidad sí la usa (sale del tráfico).
+          livenessProbe:
+            tcpSocket: {port: http}
+            timeoutSeconds: 5
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {memory: 768Mi}
+      volumes:
+        - name: claves-publicas
+          secret:
+            secretName: claves-publicas
+            defaultMode: 0444
+        - name: claves-servicio-scoring
+          secret:
+            secretName: claves-servicio-scoring
+            defaultMode: 0444

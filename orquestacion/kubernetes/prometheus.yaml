@@ -1,0 +1,83 @@
+# Prometheus: el mismo prometheus.yml que Docker Compose (los nombres de Service coinciden con los de Compose).
+# La contraseña del scraper se escribe al arrancar en /tmp (emptyDir en memoria): nunca en un archivo versionado.
+# Datos en emptyDir: Prometheus corre como "nobody" y en Docker Desktop un volumen persistente nuevo pertenece a
+# root; en este entorno local basta con conservar el historial mientras viva el pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/component: observabilidad
+spec:
+  selector:
+    app.kubernetes.io/name: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  labels:
+    app.kubernetes.io/component: observabilidad
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prometheus
+    spec:
+      # Sin variables *_PORT/*_SERVICE_HOST inyectadas por cada Service: "scoring-api" generaría
+      # SCORING_API_PORT=tcp://..., que choca con server.port=${SCORING_API_PORT:8080}. Se usa DNS.
+      enableServiceLinks: false
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v3.5.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              umask 077 && printf '%s' "$METRICS_SCRAPER_PASSWORD" > /tmp/scraper-password &&
+              exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml
+              --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=7d
+          env:
+            - name: METRICS_SCRAPER_PASSWORD
+              valueFrom: {secretKeyRef: {name: crediticio-credenciales, key: METRICS_SCRAPER_PASSWORD}}
+          ports:
+            - name: http
+              containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: datos
+              mountPath: /prometheus
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet: {path: /-/ready, port: http}
+            timeoutSeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /-/healthy, port: http}
+            timeoutSeconds: 5
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+        - name: datos
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

@@ -21,7 +21,8 @@ Antes de ejecutar el proyecto localmente se requiere tener instalado:
 * JDK 21
 * Git
 * PostgreSQL
-* Docker Desktop (opcional para el entorno de contenedores)
+* Docker Desktop (opcional para el entorno de contenedores: PostgreSQL y las tres APIs integradas con Docker
+  Compose o con el Kubernetes de Docker Desktop, ver [`orquestacion/README.md`](orquestacion/README.md))
 
 Verificar Java:
 

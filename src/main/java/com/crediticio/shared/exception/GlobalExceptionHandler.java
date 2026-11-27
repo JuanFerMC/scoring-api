@@ -23,9 +23,13 @@ import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -186,6 +190,30 @@ public class GlobalExceptionHandler {
         log.warn("Solicitud rechazada por violación de una restricción de validación");
         return construirRespuesta(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                 "Los datos enviados no son válidos", details);
+    }
+
+    /** Content-Type no soportado (p. ej. text/plain en un endpoint JSON): error del cliente, 415 y no 500. */
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiError> manejarTipoDeContenidoNoSoportado(HttpMediaTypeNotSupportedException ex) {
+        log.warn("Solicitud rechazada por Content-Type no soportado");
+        List<String> admitidos = ex.getSupportedMediaTypes().stream().map(MediaType::toString).toList();
+        HttpHeaders headers = new HttpHeaders();
+        if (!ex.getSupportedMediaTypes().isEmpty()) {
+            headers.setAccept(ex.getSupportedMediaTypes());
+        }
+        ApiError apiError = new ApiError("UNSUPPORTED_MEDIA_TYPE",
+                "El tipo de contenido de la solicitud no está soportado", admitidos, MDC.get("traceId"));
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).headers(headers).body(apiError);
+    }
+
+    /**
+     * El encabezado Accept no admite ningún tipo que el endpoint pueda producir: 406 y no 500. Sin cuerpo,
+     * porque por definición el cliente no acepta el formato JSON de ApiError; el traceId viaja en X-Trace-Id.
+     */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public ResponseEntity<Void> manejarTipoDeRespuestaNoAceptable(HttpMediaTypeNotAcceptableException ex) {
+        log.warn("Solicitud rechazada porque el encabezado Accept no admite el formato de respuesta");
+        return ResponseEntity.status(HttpStatus.NOT_ACCEPTABLE).build();
     }
 
     @ExceptionHandler(Exception.class)
